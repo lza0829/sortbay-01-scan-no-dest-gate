@@ -135,3 +135,18 @@ th { background: #e4e8ee; }
 .msg { margin: 0.5rem 0; color: var(--ok); }
 .err { margin: 0.5rem 0; color: var(--danger); }
 .muted { color: #66707c; font-size: 0.86rem; }
+
+.row-warn { background: #fdf3e0; }
+.stat-warn { border-top-color: var(--danger); }
+.tag {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.8rem;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.tag-ok { background: #dcefe3; color: var(--ok); border-color: #9cc7ac; }
+.tag-warn { background: #fbeecb; color: #7a5a12; border-color: var(--warn); }
+.tag-danger { background: #f6ddd8; color: var(--danger); border-color: #d59a8e; }
+.inline-sup { display: inline-flex; gap: 0.35rem; align-items: center; margin-right: 0.4rem; }
+.inline-sup input { min-width: 110px; }

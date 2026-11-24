@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS scans (
   divert_batch_id INTEGER,
   scanned_at TEXT NOT NULL,
   note TEXT NOT NULL DEFAULT '',
+  reject_reason TEXT NOT NULL DEFAULT '',
+  UNIQUE(barcode, shift_id),
   FOREIGN KEY(shift_id) REFERENCES shifts(id),
   FOREIGN KEY(line_id) REFERENCES lines(id),
   FOREIGN KEY(chute_id) REFERENCES chutes(id)
@@ -97,9 +99,12 @@ CREATE TABLE IF NOT EXISTS settings (
 
 def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
+    # WAL + 忙等，让并发写在写锁上排队而不是立刻抛 database is locked
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
@@ -107,6 +112,8 @@ def connect() -> sqlite3.Connection:
 def db():
     conn = connect()
     try:
+        # 单连接内的全部读改写在一个立即事务里，杜绝检查-插入窗口里的并发双装
+        conn.execute("BEGIN IMMEDIATE")
         yield conn
         conn.commit()
     except Exception:
@@ -116,9 +123,36 @@ def db():
         conn.close()
 
 
+def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _index_names(conn: sqlite3.Connection) -> set[str]:
+    return {r["name"] for r in conn.execute("PRAGMA index_list(scans)").fetchall()}
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    # 旧库补字段：装载拒因（缺目的地等）必须落库可核，不得静默抹掉
+    if "reject_reason" not in _column_names(conn, "scans"):
+        conn.execute("ALTER TABLE scans ADD COLUMN reject_reason TEXT NOT NULL DEFAULT ''")
+    # 旧库补班次内条码唯一索引，并发双装由数据库兜底
+    if "ux_scans_barcode_shift" not in _index_names(conn):
+        dup = conn.execute(
+            "SELECT barcode, shift_id FROM scans GROUP BY barcode, shift_id HAVING COUNT(*) > 1 LIMIT 1"
+        ).fetchone()
+        if dup is None:
+            conn.execute(
+                "CREATE UNIQUE INDEX ux_scans_barcode_shift ON scans(barcode, shift_id)"
+            )
+
+
 def init_db() -> None:
+    # 逐条执行 DDL，保持在同一立即事务内；executescript 会隐式 COMMIT，破坏事务边界
+    statements = [s.strip() for s in SCHEMA.split(";") if s.strip()]
     with db() as conn:
-        conn.executescript(SCHEMA)
+        for stmt in statements:
+            conn.execute(stmt)
+        migrate(conn)
 
 
 def row_to_dict(row: sqlite3.Row | None) -> dict | None:

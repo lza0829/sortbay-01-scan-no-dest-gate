@@ -9,13 +9,23 @@ export default function Overview() {
   if (err) return <div className="panel err">{err}</div>
   if (!data) return <div className="panel">加载中…</div>
   const d = data.分布 || {}
+  const dirtyN = data.脏行数 || 0
   return (
     <div className="panel">
       <h2>总览</h2>
       <p className="muted">当前班次：{data.班次?.business_day} {data.班次?.name} · {data.班次?.sealed ? '已封班' : '未封班'}</p>
+      {dirtyN > 0 && (
+        <div className="err">
+          自检发现 {dirtyN} 条无目的地却可裁决的脏行，已从待路由桶剔除并禁止裁决，请补码处理：
+          [{(data.脏行 || []).map((x) => `#${x.id} ${x.barcode}`).join('，')}]
+        </div>
+      )}
       <div className="grid">
         {Object.entries(d).map(([k, v]) => (
-          <div className="stat" key={k}><div className="n">{v}</div><div className="l">{k}</div></div>
+          <div className={`stat ${k === '待补目的地' && v > 0 ? 'stat-warn' : ''}`} key={k}>
+            <div className="n">{v}</div>
+            <div className="l">{k}</div>
+          </div>
         ))}
       </div>
       <table>

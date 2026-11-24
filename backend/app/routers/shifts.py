@@ -41,7 +41,11 @@ def reconcile(shift_id: int | None = None):
             "SELECT COUNT(*) c FROM divert_batches WHERE shift_id=?", (sid,)
         ).fetchone()["c"]
         pending = conn.execute(
-            "SELECT COUNT(*) c FROM scans WHERE shift_id=? AND status IN ('待路由','错分回流')",
+            "SELECT COUNT(*) c FROM scans WHERE shift_id=? AND status IN ('待路由','错分回流','待补目的地')",
+            (sid,),
+        ).fetchone()["c"]
+        need_dest = conn.execute(
+            "SELECT COUNT(*) c FROM scans WHERE shift_id=? AND status='待补目的地'",
             (sid,),
         ).fetchone()["c"]
         return {
@@ -52,6 +56,7 @@ def reconcile(shift_id: int | None = None):
             "已封袋数": sealed_bag,
             "回流批次数": divert_n,
             "未清件数": pending,
+            "待补码件数": need_dest,
         }
 
 
@@ -85,11 +90,11 @@ def seal_shift(shift_id: int):
         if shift["sealed"]:
             raise HTTPException(400, "已封班")
         pending = conn.execute(
-            "SELECT COUNT(*) c FROM scans WHERE shift_id=? AND status IN ('待路由','错分回流','已路由','已入袋')",
+            "SELECT COUNT(*) c FROM scans WHERE shift_id=? AND status IN ('待路由','错分回流','待补目的地','已路由','已入袋')",
             (shift_id,),
         ).fetchone()["c"]
         if pending:
-            raise HTTPException(400, f"仍有未封袋/未路由件 {pending}，禁止封班")
+            raise HTTPException(400, f"仍有未封袋/未路由/待补码件 {pending}，禁止封班")
         conn.execute(
             "UPDATE shifts SET sealed=1, sealed_at=? WHERE id=?",
             (now_str(), shift_id),
